@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tilesmith Studio</title>
+    <style>
+      :root {
+        --bg: #1a1d22;
+        --panel: #23272e;
+        --panel-hi: #2d323a;
+        --border: #3a3f48;
+        --text: #d7dbe0;
+        --text-dim: #8a909a;
+        --accent: #5aa0ff;
+        --accent-dim: #36608f;
+        --danger: #e27373;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; padding: 0; height: 100%;
+        background: var(--bg); color: var(--text);
+        font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI",
+              "Helvetica Neue", sans-serif;
+        overflow: hidden;
+      }
+      #app {
+        display: grid;
+        grid-template-columns: 240px 1fr 260px;
+        grid-template-rows: 40px 32px 1fr 24px;
+        height: 100vh;
+      }
+      header {
+        grid-column: 1 / 4;
+        display: flex; align-items: center;
+        padding: 0 12px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+        gap: 12px;
+      }
+      header h1 {
+        font-size: 13px; font-weight: 600; margin: 0;
+        color: var(--text);
+      }
+      header .meta { color: var(--text-dim); font-size: 11px; }
+      header .spacer { flex: 1; }
+      header button {
+        background: var(--panel-hi); color: var(--text);
+        border: 1px solid var(--border);
+        padding: 4px 10px; border-radius: 3px;
+        cursor: pointer; font-size: 12px;
+      }
+      header button:hover { border-color: var(--accent); }
+
+      #toolbar {
+        grid-column: 1 / 4;
+        display: flex; align-items: center;
+        padding: 0 12px; gap: 10px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+        font-size: 12px;
+      }
+      #toolbar .sep {
+        width: 1px; height: 18px; background: var(--border);
+      }
+      #toolbar button.tool {
+        background: transparent; color: var(--text);
+        border: 1px solid var(--border);
+        padding: 3px 10px; border-radius: 3px;
+        cursor: pointer; font-size: 12px;
+      }
+      #toolbar button.tool.active {
+        background: var(--accent-dim); border-color: var(--accent);
+        color: #fff;
+      }
+      #toolbar label { color: var(--text-dim); font-size: 11px; }
+      #toolbar select {
+        background: var(--panel-hi); color: var(--text);
+        border: 1px solid var(--border);
+        padding: 2px 6px; border-radius: 3px;
+        font-size: 12px;
+      }
+      #toolbar .current-key {
+        color: var(--text-dim);
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 11px;
+      }
+      #toolbar .current-key b { color: var(--text); font-weight: 500; }
+
+      .panel-left, .panel-right {
+        background: var(--panel);
+        overflow-y: auto;
+      }
+      .panel-left { border-right: 1px solid var(--border); }
+      .panel-right { border-left: 1px solid var(--border); }
+      .panel-left h2, .panel-right h2 {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-dim);
+        margin: 12px 12px 6px;
+        font-weight: 600;
+      }
+      #canvas-wrap {
+        position: relative;
+        overflow: hidden;
+        background: #0f1114;
+      }
+      #canvas-host { position: absolute; inset: 0; }
+      #status {
+        grid-column: 1 / 4;
+        display: flex; align-items: center;
+        padding: 0 12px;
+        background: var(--panel);
+        border-top: 1px solid var(--border);
+        font-size: 11px; color: var(--text-dim);
+        gap: 16px;
+      }
+      #status .ok { color: #7ed38b; }
+      #status .err { color: var(--danger); }
+
+      .layer-row {
+        display: flex; align-items: center;
+        padding: 4px 12px; gap: 8px;
+        cursor: default;
+      }
+      .layer-row:hover { background: var(--panel-hi); }
+      .layer-row input[type="checkbox"] { accent-color: var(--accent); }
+      .layer-row .name { flex: 1; }
+      .layer-row .count { color: var(--text-dim); font-size: 11px; }
+      .layer-row input[type="range"] { width: 60px; }
+
+      .info-row {
+        display: flex; justify-content: space-between;
+        padding: 3px 12px;
+        color: var(--text-dim);
+      }
+      .info-row b { color: var(--text); font-weight: 500; }
+
+      /* Palette */
+      #palette {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, 36px);
+        gap: 2px;
+        padding: 6px 12px 16px;
+      }
+      .pal-cell {
+        width: 36px; height: 36px;
+        background: #0f1114;
+        border: 1px solid transparent;
+        border-radius: 2px;
+        cursor: pointer;
+        image-rendering: pixelated;
+        background-size: 32px 32px;
+        background-position: center;
+        background-repeat: no-repeat;
+      }
+      .pal-cell:hover { border-color: var(--accent-dim); }
+      .pal-cell.active {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px var(--accent) inset;
+      }
+
+      /* Wang panel */
+      #wang-panel { padding: 4px 12px 16px; }
+      #wang-panel select {
+        width: 100%;
+        background: var(--panel-hi); color: var(--text);
+        border: 1px solid var(--border);
+        padding: 3px 6px; border-radius: 3px;
+        font-size: 11px; margin-bottom: 6px;
+      }
+      #wang-colors {
+        display: flex; flex-wrap: wrap; gap: 4px;
+      }
+      .wang-color {
+        width: 24px; height: 24px;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        cursor: pointer;
+        position: relative;
+      }
+      .wang-color:hover { border-color: var(--accent-dim); }
+      .wang-color.active {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px var(--accent) inset;
+      }
+      #wang-active {
+        font-size: 11px; color: var(--text-dim);
+        margin-top: 6px;
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      }
+      #wang-active b { color: var(--text); font-weight: 500; }
+      #wang-fill-selection {
+        margin-top: 8px;
+        background: var(--accent-dim); color: #fff;
+        border: 1px solid var(--accent);
+        padding: 4px 10px; border-radius: 3px;
+        cursor: pointer; font-size: 11px;
+        width: 100%;
+      }
+      #wang-fill-selection:hover:not(:disabled) { background: var(--accent); }
+      #wang-fill-selection:disabled {
+        background: var(--panel-hi); border-color: var(--border);
+        color: var(--text-dim); cursor: not-allowed;
+      }
+    </style>
+    <script type="module" crossorigin src="/assets/index-DUKL6TJ2.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>Tilesmith Studio</h1>
+        <span class="meta" id="meta">—</span>
+        <span class="spacer"></span>
+        <button id="btn-undo" title="Ctrl+Z — undo last paint" disabled>Undo</button>
+        <button id="btn-redo" title="Ctrl+Shift+Z — redo" disabled>Redo</button>
+        <button id="btn-fit">Fit</button>
+        <button id="btn-reload">Reload</button>
+      </header>
+
+      <div id="toolbar">
+        <button class="tool" id="tool-view" title="V — pan/zoom">View</button>
+        <button class="tool" id="tool-paint" title="B — paint selected tile">Paint</button>
+        <button class="tool" id="tool-erase" title="E — erase to empty">Erase</button>
+        <button class="tool" id="tool-select" title="R — drag-select rect (Esc clears)">Select</button>
+        <button class="tool" id="tool-wang" title="W — wang-aware autotile paint">Wang</button>
+        <span class="sep"></span>
+        <label for="active-layer">Layer</label>
+        <select id="active-layer"></select>
+        <span class="sep"></span>
+        <span class="current-key">tile: <b id="current-key">—</b></span>
+      </div>
+
+      <aside class="panel-left">
+        <h2>Layers</h2>
+        <div id="layer-list"></div>
+        <h2>Object Groups</h2>
+        <div id="objgroup-list"></div>
+      </aside>
+
+      <div id="canvas-wrap">
+        <div id="canvas-host"></div>
+      </div>
+
+      <aside class="panel-right">
+        <h2>Info</h2>
+        <div id="info-panel"></div>
+        <h2>Cursor</h2>
+        <div id="cursor-panel" class="info-row">
+          <span>tile</span><b id="cursor-tile">—</b>
+        </div>
+        <h2>Palette</h2>
+        <div id="palette"></div>
+        <h2>Wang</h2>
+        <div id="wang-panel">
+          <select id="wang-set-select"></select>
+          <div id="wang-colors"></div>
+          <div id="wang-active"></div>
+          <button id="wang-fill-selection" disabled
+                  title="Seçili alanı aktif wang rengi ile doldur">
+            Fill selection (wang)
+          </button>
+        </div>
+      </aside>
+
+      <div id="status">
+        <span id="ws-status">WS: connecting…</span>
+        <span id="fps">—</span>
+        <span id="anim-count">—</span>
+        <span id="mode">mode: view</span>
+        <span id="selection-info"></span>
+      </div>
+    </div>
+  </body>
+</html>

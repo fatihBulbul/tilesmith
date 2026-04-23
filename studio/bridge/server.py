@@ -57,7 +57,7 @@ DEFAULT_DB_PATH = Path(
 
 try:
     from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
-    from fastapi.responses import Response, FileResponse, JSONResponse
+    from fastapi.responses import Response, FileResponse, JSONResponse, HTMLResponse
     from fastapi.staticfiles import StaticFiles
 except ImportError:
     print("ERROR: fastapi + uvicorn gerekli. `pip install fastapi uvicorn[standard]`",
@@ -943,22 +943,79 @@ async def ws_endpoint(ws: WebSocket) -> None:
 
 FRONTEND_DIST = PLUGIN_ROOT / "studio" / "frontend" / "dist"
 FRONTEND_SRC = PLUGIN_ROOT / "studio" / "frontend"
+FRONTEND_INDEX = FRONTEND_DIST / "index.html"
 
-if FRONTEND_DIST.exists():
+if FRONTEND_INDEX.exists():
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True),
               name="frontend")
 else:
-    # Dev convenience: serve raw index.html + src
-    @app.get("/")
-    async def root_hint() -> dict:
-        return {
-            "hint": (
-                "Frontend build not found. Run `npm install && npm run build` "
-                "inside studio/frontend/. For dev, run `npm run dev` and "
-                "connect the dev server to /state, /sprite/*, /ws via CORS."
-            ),
-            "frontend_src": str(FRONTEND_SRC),
-        }
+    # The plugin ships with a prebuilt `studio/frontend/dist/`. If we reach
+    # here, something went wrong: a broken install, a stripped tarball, or
+    # a dev checkout before the first `npm run build`. Serve a readable
+    # HTML page (not a dev-centric JSON blob) so the end user immediately
+    # understands what's happening and how to recover.
+    _MISSING_BUILD_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Tilesmith Studio — build missing</title>
+  <style>
+    :root {{ color-scheme: light dark; }}
+    body {{ font-family: -apple-system, Segoe UI, Helvetica, Arial, sans-serif;
+           max-width: 640px; margin: 4rem auto; padding: 0 1.5rem;
+           line-height: 1.55; color: #222; background: #fafafa; }}
+    @media (prefers-color-scheme: dark) {{
+      body {{ color: #eee; background: #181818; }}
+      code, pre {{ background: #222; color: #eee; }}
+    }}
+    h1 {{ font-size: 1.25rem; margin-bottom: 0.25rem; }}
+    .tag {{ display: inline-block; background: #c44; color: #fff;
+           padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;
+           letter-spacing: 0.04em; text-transform: uppercase;
+           margin-bottom: 1rem; }}
+    pre {{ background: #eee; padding: 0.75rem 1rem; border-radius: 6px;
+          overflow-x: auto; font-size: 0.85rem; }}
+    code {{ background: #eee; padding: 1px 5px; border-radius: 3px; }}
+    .muted {{ color: #888; font-size: 0.85rem; }}
+    a {{ color: #36c; }}
+  </style>
+</head>
+<body>
+  <span class="tag">Tilesmith Studio</span>
+  <h1>Studio frontend build is missing.</h1>
+  <p>
+    The plugin normally ships with a prebuilt Studio UI. This install
+    does not have one, which usually means a broken update or a dev
+    checkout that was never built.
+  </p>
+  <h2>Quick fix</h2>
+  <p>If you have <a href="https://nodejs.org">Node.js 18+</a> installed, run:</p>
+  <pre>cd {src}
+npm install
+npm run build</pre>
+  <p>
+    Then in Claude Code, run <code>close_studio</code> and
+    <code>open_studio</code> again (the bridge caches this state until
+    restart).
+  </p>
+  <h2>Still stuck?</h2>
+  <p>
+    Please open an issue at
+    <a href="https://github.com/fatihBulbul/tilesmith/issues">
+      github.com/fatihBulbul/tilesmith
+    </a>
+    with your Claude Code version and the plugin path shown below.
+  </p>
+  <p class="muted">Plugin path: <code>{src}</code></p>
+</body>
+</html>"""
+
+    @app.get("/", response_class=HTMLResponse)
+    async def root_missing_build() -> HTMLResponse:
+        return HTMLResponse(
+            content=_MISSING_BUILD_HTML.format(src=str(FRONTEND_SRC)),
+            status_code=503,
+        )
 
 
 # ---------------------------------------------------------------------

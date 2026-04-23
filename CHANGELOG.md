@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2026-04-23
+
+### Fixed — Studio frontend build artık paketin içinde (kritik UX sorunu)
+
+- **`studio/frontend/dist/` repo'ya dahil edildi.** Önceki sürümde gitignore'daydı — plugin kurulumunda kullanıcının elle `npm install && npm run build` çalıştırması gerekiyordu. Artık plugin prebuilt Studio UI ile geliyor, Node.js kurulu olması gerekmiyor. Bundle `index.html` (9 KB) + `assets/index-*.js` (215 KB, gzip 65 KB) olmak üzere ~224 KB.
+- **`.gitignore`** Python `dist/` pattern'i ve generic `assets/` pattern'inin `studio/frontend/dist/` içeriğini yutmasını engelleyen explicit `!studio/frontend/dist/**` negations aldı. Frontend bundle'ı commit'leniyor, `node_modules/` hâlâ ignored.
+- **Bridge'in "build not found" mesajı** dev-centric JSON hint yerine artık kullanıcı-dostu HTML 503 sayfası. Dark-mode destekli, "what went wrong / how to fix / how to report" bölümleri var. Studio bundle bir şekilde eksikse tarayıcıda anlamlı mesaj görünüyor.
+- **`bootstrap.py` frontend fallback.** Eğer `studio/frontend/dist/` eksikse ve `npm` PATH'te varsa, bootstrap otomatik `npm ci && npm run build` çalıştırıyor. npm yoksa warn ederek devam ediyor (core MCP tool'ları Studio olmadan da çalışır — frontend başarısızlığı fatal değil). Bu, bozuk install veya dev checkout senaryoları için belt-and-suspenders.
+- **`FRONTEND_MARKER`** (`studio/frontend/.built`) auto-build'in idempotent olmasını sağlıyor.
+
+### Neden önemli
+
+Önceki akışta v0.7.2 kullanıcısı plugin'i kurdu, `open_studio` çağırdı, tarayıcıyı açtı ve "Frontend build not found" JSON'u gördü — kullanıcı için anlaşılmaz, plugin bozuk sanılır. Bu release'de ideal senaryo: kur → `open_studio` → tarayıcıda Studio UI hazır, kurulum yok. En kötü senaryo: HTML hata sayfası net adımlarla ne yapılacağını söylüyor.
+
+### Maintainer notu
+
+Her release öncesi **`cd studio/frontend && npm run build`** çalıştırılmalı ki commit'lenen `dist/` güncel olsun. İleride GitHub Actions release workflow bunu otomatik yapacak.
+
 ## [0.7.2] - 2026-04-23
 
 ### Fixed — Plugin self-bootstrap (kritik kurulum sorunu)

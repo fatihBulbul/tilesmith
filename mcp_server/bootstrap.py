@@ -24,6 +24,7 @@ Design notes:
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import venv
@@ -35,6 +36,11 @@ VENV_DIR = PLUGIN_ROOT / ".venv"
 REQ_FILE = PLUGIN_ROOT / "requirements.txt"
 MARKER = VENV_DIR / ".installed"
 SERVER_PY = PLUGIN_ROOT / "mcp_server" / "server.py"
+
+FRONTEND_DIR = PLUGIN_ROOT / "studio" / "frontend"
+FRONTEND_DIST = FRONTEND_DIR / "dist"
+FRONTEND_INDEX = FRONTEND_DIST / "index.html"
+FRONTEND_MARKER = FRONTEND_DIR / ".built"
 
 MIN_PY = (3, 10)
 
@@ -99,6 +105,41 @@ def pip_install() -> None:
     log("deps installed")
 
 
+def ensure_frontend() -> None:
+    """If the Studio frontend build is missing AND Node is available,
+    try to build it. This is a belt-and-suspenders fallback — the plugin
+    normally ships with a prebuilt `studio/frontend/dist/`. If Node is
+    absent we silently skip; the bridge server will serve a readable HTML
+    error page when the user tries to open Studio.
+    """
+    if FRONTEND_INDEX.exists():
+        return  # Prebuilt dist already present (expected path).
+    npm = shutil.which("npm")
+    if npm is None:
+        log("npm not found; Studio UI will not be available until you "
+            "install Node.js 18+ and run `npm install && npm run build` "
+            f"in {FRONTEND_DIR}")
+        return
+    try:
+        log("Studio frontend missing; building from source (~30-60s)")
+        # `npm ci` if lockfile exists, else `npm install`.
+        if (FRONTEND_DIR / "package-lock.json").exists():
+            subprocess.check_call([npm, "ci", "--silent"], cwd=str(FRONTEND_DIR))
+        else:
+            subprocess.check_call([npm, "install", "--silent"],
+                                  cwd=str(FRONTEND_DIR))
+        subprocess.check_call([npm, "run", "build", "--silent"],
+                              cwd=str(FRONTEND_DIR))
+        FRONTEND_MARKER.touch()
+        log("Studio frontend built")
+    except subprocess.CalledProcessError as e:
+        log(f"WARN: frontend build failed (exit {e.returncode}); "
+            "Studio UI will be unavailable until the build succeeds. "
+            "Core MCP tools still work.")
+    except Exception as e:  # noqa: BLE001
+        log(f"WARN: frontend build skipped: {e}")
+
+
 def check_python_version() -> None:
     if sys.version_info < MIN_PY:
         log(
@@ -121,6 +162,11 @@ def main() -> None:
         except Exception as e:  # noqa: BLE001
             log(f"ERROR: bootstrap failed: {e}")
             sys.exit(1)
+
+    # Frontend is non-fatal: a missing Studio UI does not break core MCP
+    # tools (scan_folder, generate_map, consolidate_map, ...). We only
+    # fail the whole bootstrap on Python dep issues above.
+    ensure_frontend()
 
     if not SERVER_PY.exists():
         log(f"ERROR: server.py not found at {SERVER_PY}")
