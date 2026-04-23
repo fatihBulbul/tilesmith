@@ -1,0 +1,4 @@
+mcp>=1.0.0
+Pillow>=10.0.0
+fastapi>=0.110
+uvicorn[standard]>=0.29

@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-import:
+    name: Python lint + import + unit tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff
+
+      - name: Lint with ruff
+        run: ruff check mcp_server/ --select E9,F63,F7,F82
+
+      - name: Import smoke test (mcp_server)
+        run: |
+          cd mcp_server
+          python -c "import scanner; import consolidate; import wang; import tmx_state; import tmx_mutator; print('mcp_server modules OK')"
+
+      - name: Import smoke test (studio bridge)
+        run: |
+          cd studio/bridge
+          python -c "import server; print('studio bridge OK')"
+
+      - name: Wang unit tests (no fixtures)
+        run: python scripts/test_wang_unit.py
+
+      - name: Validate plugin.json
+        run: python -c "import json; json.load(open('.claude-plugin/plugin.json'))"
+
+      - name: Validate marketplace.json
+        run: python -c "import json; json.load(open('.claude-plugin/marketplace.json'))"
+
+      - name: Validate .mcp.json
+        run: python -c "import json; json.load(open('.mcp.json'))"
+
+  frontend-build:
+    name: Studio frontend build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: studio/frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: studio/frontend
+        run: npm ci
+
+      - name: Type-check + build
+        working-directory: studio/frontend
+        run: npm run build
