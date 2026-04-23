@@ -109,7 +109,7 @@ Repo, Claude Code plugin marketplace yapısında düzenlenmiştir:
 /plugin install tilesmith@tilesmith-marketplace
 ```
 
-Hepsi bu — Claude Code `.mcp.json`, `skills/` ve MCP server'ı auto-discover eder. İlk çalıştırmada sana tileset klasörünü tarama önerir.
+Hepsi bu. Claude Code `.mcp.json`, `skills/` ve MCP server'ı auto-discover eder. İlk açılışta plugin kendi klasörü içinde izole bir `.venv` kurar ve Python bağımlılıklarını oraya yükler — sen `pip install` çalıştırmazsın, plugin sistem Python'una hiç dokunmaz. İlk başlangıç ~30 sn sürer; sonraki başlangıçlar anında. Bu yaklaşım macOS (Homebrew) ve Debian/Ubuntu'daki PEP 668 (`externally-managed-environment`) kısıtlamasını aşar.
 
 ### Standalone kurulum
 

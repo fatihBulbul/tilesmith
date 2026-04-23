@@ -2,7 +2,7 @@
   "mcpServers": {
     "tilesmith": {
       "command": "python3",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp_server/server.py"],
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp_server/bootstrap.py"],
       "env": {
         "TILESMITH_DB_PATH": "${CLAUDE_PLUGIN_ROOT}/data/tiles.db",
         "TILESMITH_OUTPUT_DIR": "${CLAUDE_PLUGIN_ROOT}/output"

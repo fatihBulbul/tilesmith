@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-04-23
+
+### Fixed — Plugin self-bootstrap (kritik kurulum sorunu)
+
+- **`mcp_server/bootstrap.py`** — Plugin'in hiçbir manuel kurulum gerektirmeden çalışmasını sağlayan bootstrap katmanı. Claude Code sistem `python3` ile bu script'i başlatır; script plugin-local `.venv` oluşturur, `requirements.txt`'i kurar, sonra `os.execv` ile gerçek MCP server'a geçer. Bu sayede Claude Code'un stdio pipe'ları doğrudan server'a bağlanır, handshake kesintisiz gerçekleşir.
+- **`.mcp.json`** artık `server.py` yerine `bootstrap.py`'ı çağırıyor.
+- **Neden gerekli:** macOS + Homebrew Python'da PEP 668 (`externally-managed-environment`) kısıtlaması `pip install mcp`'yi engelliyor; Debian/Ubuntu sistemlerinde de aynı kısıtlama geçerli. Önceki sürüm sistem Python'ına `mcp`/`Pillow`/`fastapi`/`uvicorn` kurulmuş olmasını varsayıyordu — yüklü değilse "Failed to reconnect to plugin" hatası alınıyordu.
+- **İdempotency:** İlk çağrıda `.venv` + `pip install` (yaklaşık 30 sn). Sonraki çağrılarda `.installed` marker ile install atlanıyor, bootstrap 0.7 sn'de biter.
+- **Requirements değişirse:** `requirements.txt`'in mtime'ı marker'dan yeni ise otomatik reinstall.
+- **Cross-platform:** POSIX'te `.venv/bin/python`, Windows'ta `.venv/Scripts/python.exe`.
+- **Python 3.10+ kontrolü:** Bootstrap açılışta version check yapıyor; eski Python'da anlamlı hata mesajı veriyor ("Failed to reconnect" yerine).
+
 ## [0.7.1] - 2026-04-23
 
 ### Added — Edge-type wang resolver

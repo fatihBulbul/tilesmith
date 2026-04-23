@@ -109,7 +109,7 @@ The repository is structured as a Claude Code plugin marketplace. Install it wit
 /plugin install tilesmith@tilesmith-marketplace
 ```
 
-That's it — Claude Code auto-discovers `.mcp.json`, `skills/`, and the MCP server. The first run will prompt you to scan a tileset folder.
+That's it. Claude Code auto-discovers `.mcp.json`, `skills/`, and the MCP server. On first launch, the plugin bootstraps an isolated `.venv` inside its own folder and installs its Python dependencies there — you don't run `pip install` yourself, and the plugin never touches your system Python. First start takes ~30s; every subsequent start is instant. This sidesteps PEP 668 on macOS (Homebrew) and Debian/Ubuntu.
 
 ### Manual install (standalone)
 
