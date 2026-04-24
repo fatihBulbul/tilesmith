@@ -430,6 +430,52 @@ class StudioState:
         res["rect"] = {"x0": xa, "y0": ya, "x1": xb, "y1": yb}
         return res
 
+    async def patch_objects_add(
+        self, group_name: str, objects: list[dict],
+    ) -> dict:
+        """Insert new tile-objects into an objectgroup (v0.8+ place_props).
+
+        After writing the TMX we rebuild the whole state + sprite cache so
+        any brand-new tile-keys become resolvable for renderers. Returns
+        {ok, added, objects, reload: True}.
+        """
+        from tmx_mutator import apply_object_add
+        async with self._lock:
+            if self.tmx_path is None:
+                raise RuntimeError("no TMX loaded")
+            res = apply_object_add(self.tmx_path, group_name, objects)
+            # Force full state rebuild — new objects often reference sprites
+            # not yet in our cache.
+            st, sprites = build_map_state(self.tmx_path)
+            self.state = st
+            self.sprites = sprites
+            res["reload"] = True
+            return res
+
+    async def patch_objects_remove(
+        self, group_name: str, ids: list[int],
+    ) -> dict:
+        """Batch-remove objects (by id) from an objectgroup (v0.8+).
+
+        After the write we patch the in-memory state in place (no full
+        rebuild needed since we're only deleting — sprite cache is still
+        valid). Broadcasts {type: "patch", op: "objects_remove", ...}.
+        """
+        from tmx_mutator import apply_object_remove
+        async with self._lock:
+            if self.tmx_path is None:
+                raise RuntimeError("no TMX loaded")
+            res = apply_object_remove(self.tmx_path, group_name, ids)
+            removed_set = set(res.get("removed_ids") or [])
+            for OG in self.state.get("object_groups", []):
+                if OG["name"] == group_name:
+                    OG["objects"] = [
+                        o for o in OG["objects"]
+                        if int(o.get("id", -1)) not in removed_set
+                    ]
+                    break
+            return res
+
     async def patch_object(self, group_name: str, patch: dict) -> dict:
         async with self._lock:
             if self.tmx_path is None:
@@ -823,6 +869,52 @@ async def patch_object(body: dict) -> dict:
             "group": group,
             "patch": patch,
         })
+    return res
+
+
+@app.post("/patch/objects_add")
+async def patch_objects_add(body: dict) -> dict:
+    """Batch-insert new tile-objects into an objectgroup (v0.8+ place_props).
+
+    body: {layer: str, objects: [{key, x, y, width, height, rotation?}, ...]}
+    After TMX write the whole state is rebuilt and re-broadcast, because
+    new object keys may reference sprites not in the client's cache.
+    """
+    layer = body.get("layer")
+    objects = body.get("objects")
+    if not layer or not isinstance(objects, list):
+        raise HTTPException(400, "layer + objects required")
+    try:
+        res = await STATE.patch_objects_add(layer, objects)
+    except (FileNotFoundError, RuntimeError, ValueError) as e:
+        raise HTTPException(400, str(e))
+    # patch_objects_add always sets reload=True.
+    await STATE.broadcast({"type": "map_loaded", "state": STATE.state})
+    return res
+
+
+@app.post("/patch/objects_remove")
+async def patch_objects_remove(body: dict) -> dict:
+    """Batch-remove objects by id from an objectgroup (v0.8+ remove_objects).
+
+    body: {layer: str, ids: [int, ...]}
+    Broadcasts a lightweight {type: "patch", op: "objects_remove",
+    group, ids} so clients can prune locally without a full reload.
+    """
+    layer = body.get("layer")
+    ids = body.get("ids")
+    if not layer or not isinstance(ids, list):
+        raise HTTPException(400, "layer + ids required")
+    try:
+        res = await STATE.patch_objects_remove(layer, [int(i) for i in ids])
+    except (FileNotFoundError, RuntimeError, ValueError) as e:
+        raise HTTPException(400, str(e))
+    await STATE.broadcast({
+        "type": "patch",
+        "op": "objects_remove",
+        "group": layer,
+        "ids": res.get("removed_ids", []),
+    })
     return res
 
 

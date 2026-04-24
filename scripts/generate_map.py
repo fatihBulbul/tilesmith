@@ -17,6 +17,7 @@ hangi köşelerin 'su' (c1) olduğunu işaretliyoruz; dışı 0 (grass).
 
 from __future__ import annotations
 import argparse
+import json
 import math
 import os
 import random
@@ -60,6 +61,12 @@ FOREST_TOP = 2
 FOREST_BOTTOM = 37
 FOREST_DENSITY = 0.18    # her hücreye bir obje denemesi olasılığı
 MIN_FOREST_GAP_TILES = 2
+
+# --- Zone toggle'ları (v0.8.1 plan-driven) ---------------------------
+# Plan'da bir zone yoksa ilgili katman komple atlanır (boş kalır).
+DIRT_ENABLED = True
+RIVER_ENABLED = True
+FOREST_ENABLED = True
 
 # --- Pack referansı --------------------------------------------------
 # Varsayılan preset 'grass_river_forest' için ERW Grass Land 2.0 kullanılır.
@@ -478,6 +485,79 @@ def build_tmx(terrain: list[list[int]],
     return tree
 
 
+# --- Plan uygulama (v0.8.1) -----------------------------------------
+
+def _apply_plan(plan: dict) -> dict:
+    """Plan dict'ini module global'lerine yansıt.
+
+    plan = {
+      "width": int, "height": int,
+      "zones": [
+        {"type": "dirt",   "left": int, "right": int,
+                           "top": int, "bottom": int},
+        {"type": "river",  "center_x": int, "half_width": int,
+                           "wave_amp": int, "wave_period": int},
+        {"type": "forest", "left": int, "right": int,
+                           "top": int, "bottom": int,
+                           "density": float},
+      ]
+    }
+
+    Plan'da olmayan zone tipleri devre dışı bırakılır (DIRT/RIVER/FOREST
+    _ENABLED bayrakları). width/height verilmişse MAP_WIDTH/HEIGHT
+    overwrite edilir. Döndürülen dict, hangi zone'ların aktif olduğunu +
+    efektif width/height'ı içerir (debug için).
+    """
+    global MAP_WIDTH, MAP_HEIGHT
+    global DIRT_PATCH_LEFT, DIRT_PATCH_RIGHT, DIRT_PATCH_TOP, DIRT_PATCH_BOTTOM
+    global RIVER_CENTER_X, RIVER_WAVE_AMP, RIVER_WAVE_PERIOD, RIVER_HALF_WIDTH
+    global FOREST_LEFT, FOREST_RIGHT, FOREST_TOP, FOREST_BOTTOM, FOREST_DENSITY
+    global DIRT_ENABLED, RIVER_ENABLED, FOREST_ENABLED
+
+    if "width" in plan:
+        MAP_WIDTH = int(plan["width"])
+    if "height" in plan:
+        MAP_HEIGHT = int(plan["height"])
+
+    zones = plan.get("zones") or []
+    zone_types = {z.get("type") for z in zones}
+
+    DIRT_ENABLED = "dirt" in zone_types
+    RIVER_ENABLED = "river" in zone_types
+    FOREST_ENABLED = "forest" in zone_types
+
+    for z in zones:
+        t = z.get("type")
+        if t == "dirt":
+            DIRT_PATCH_LEFT = int(z["left"])
+            DIRT_PATCH_RIGHT = int(z["right"])
+            DIRT_PATCH_TOP = int(z["top"])
+            DIRT_PATCH_BOTTOM = int(z["bottom"])
+        elif t == "river":
+            RIVER_CENTER_X = int(z["center_x"])
+            RIVER_HALF_WIDTH = int(z.get("half_width", RIVER_HALF_WIDTH))
+            RIVER_WAVE_AMP = int(z.get("wave_amp", RIVER_WAVE_AMP))
+            RIVER_WAVE_PERIOD = int(z.get("wave_period", RIVER_WAVE_PERIOD))
+        elif t == "forest":
+            FOREST_LEFT = int(z["left"])
+            FOREST_RIGHT = int(z["right"])
+            FOREST_TOP = int(z["top"])
+            FOREST_BOTTOM = int(z["bottom"])
+            if "density" in z:
+                FOREST_DENSITY = float(z["density"])
+
+    return {
+        "width": MAP_WIDTH, "height": MAP_HEIGHT,
+        "dirt_enabled": DIRT_ENABLED,
+        "river_enabled": RIVER_ENABLED,
+        "forest_enabled": FOREST_ENABLED,
+    }
+
+
+def _empty_grid(w: int, h: int) -> list[list[int]]:
+    return [[0] * w for _ in range(h)]
+
+
 # --- CLI ------------------------------------------------------------
 
 def main() -> int:
@@ -487,7 +567,23 @@ def main() -> int:
                     default=_REPO_ROOT / "output" / "demo-river-forest.tmx")
     ap.add_argument("--pack", type=str, default=DEFAULT_PACK,
                     help="Kullanılacak pack adı (DB'deki pack_name)")
+    ap.add_argument("--plan", type=Path, default=None,
+                    help="Opsiyonel plan JSON dosyası (tool_plan_map "
+                         "çıktısıyla uyumlu). Verilirse width/height + "
+                         "zone bounds bu plandan alınır.")
     args = ap.parse_args()
+
+    # v0.8.1: plan varsa module globals'ı override et.
+    plan_summary: dict | None = None
+    if args.plan is not None:
+        try:
+            plan_data = json.loads(args.plan.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"ERROR: plan okunamadı ({args.plan}): {e}",
+                  file=sys.stderr)
+            return 2
+        plan_summary = _apply_plan(plan_data)
+        print(f"Plan uygulandı: {plan_summary}")
 
     rng = random.Random(args.seed)
     pool = TilePool(rng, pack_name=args.pack)
@@ -499,14 +595,35 @@ def main() -> int:
         "trees": 0, "bushes": 0,
     }
 
-    dirt_corners = build_dirt_corner_grid()
-    river_corners = build_river_corner_grid()
+    # Zone toggle'larına göre her katman ya normal ya boş üretilir.
+    if DIRT_ENABLED:
+        dirt_corners = build_dirt_corner_grid()
+        terrain = build_terrain_layer(pool, dirt_corners, stats)
+    else:
+        # Saf çimenlik — her hücre random grass tile.
+        terrain = _empty_grid(MAP_WIDTH, MAP_HEIGHT)
+        for y in range(MAP_HEIGHT):
+            for x in range(MAP_WIDTH):
+                t = pool.pick_grass()
+                terrain[y][x] = TERRAIN_FIRSTGID + t["local_id"]
+                stats["grass"] += 1
 
-    terrain = build_terrain_layer(pool, dirt_corners, stats)
-    river = build_river_layer(pool, river_corners, stats)
+    if RIVER_ENABLED:
+        river_corners = build_river_corner_grid()
+        river = build_river_layer(pool, river_corners, stats)
+    else:
+        # River katmanı tamamen şeffaf. Orman collision için boş corner grid.
+        river_corners = [[GRASS_COLOR] * (MAP_WIDTH + 1)
+                         for _ in range(MAP_HEIGHT + 1)]
+        river = _empty_grid(MAP_WIDTH, MAP_HEIGHT)
+
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    objs = place_forest_objects(pool, river_corners, stats,
-                                tmx_dir=args.out.parent)
+
+    if FOREST_ENABLED:
+        objs = place_forest_objects(pool, river_corners, stats,
+                                    tmx_dir=args.out.parent)
+    else:
+        objs = []
 
     tree = build_tmx(terrain, river, objs,
                      pack_name=args.pack, tmx_dir=args.out.parent)

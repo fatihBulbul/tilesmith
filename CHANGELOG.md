@@ -5,6 +5,216 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-04-24
+
+### Added — Pagination + list polish
+
+Büyük pack'lerde (ERW Grass Land 2.0 v1.9 ≈ 3960 tile + 870 river tile +
+300+ animated prop) `list_*` tool'ları full-dump çıkıyor ve chat context
+penceresini yiyordu. v0.8.2 bu surface'e opt-in pagination + filtreleme +
+tile-browser ekliyor.
+
+#### Pagination helper
+
+- **`_paginate(rows, limit, offset)`** — tek noktadan paginated shape:
+  `{items, total, limit, offset, has_more, next_offset}`. Backward-compat:
+  `limit=None and offset=None` (default) raw listeyi aynen döner —
+  mevcut çağrılar bozulmuyor. Cap: `PAGINATION_MAX_LIMIT=500`; negatif
+  offset 0'a sıfırlanıyor; limit 0 ve negatif 1'e düzeltiliyor.
+
+#### Tool'lara pagination eklendi
+
+- **`list_tilesets(pack_name?, limit?, offset?)`** — limit/offset verilirse
+  paginated shape, yoksa raw liste.
+- **`list_wang_sets(pack_name?, limit?, offset?)`** — aynı.
+- **`list_animated_props(category?, pack_name?, search?, limit?, offset?)`** —
+  pagination + yeni `search` substring filtresi (subject/filename,
+  case-insensitive). "yanan şey" aramak için `search="fire"` yeter.
+
+#### Yeni tool: `list_tiles`
+
+Tek bir tileset içindeki tile'ları browse etmek için (v0.8.1 öncesi bu
+surface yoktu). Zorunlu `tileset_uid` arg'ı, default `limit=100`. Dönüş:
+`{items, total, limit, offset, has_more, next_offset, tileset_uid}`.
+`items` her satırda: `pack_name, tileset_uid, tileset, local_id, semantic,
+role, walkable, atlas_row, atlas_col, image_path`. Unknown tileset_uid
+boş items + `note` alanıyla dönüyor.
+
+#### Testler
+
+- **`scripts/test_pagination.py`** (40 assertion) — `_paginate` backward-
+  compat (raw list) + shape (first page, last page, limit cap, negative
+  offset coercion); `list_tilesets` round-trip (paged vs raw); `list_tiles`
+  full flow (first page, last page, echoes tileset_uid, unknown returns
+  empty+note); `list_animated_props` search (case-insensitive, composable
+  with category, works with pagination); TOOL_DEFS surface (list_tiles
+  registered, schema fields, count ≥ 32).
+
+Tool sayısı: 31 → 32.
+
+### Kapsam dışı
+
+- `list_prop_categories`, `list_characters`, `list_reference_layers`,
+  `list_automapping_rules` — hâlâ tek-seferlik dönüyorlar. Bu tablolar
+  pratikte küçük kalıyor (her paket için onlu-yüzlü satır). Gerekirse
+  aynı pattern ile sonradan eklenebilir.
+
+## [0.8.1] - 2026-04-24
+
+### Added — Parametric `generate_map` + `plan_and_generate` zinciri
+
+v0.8.0'de `generate_map` hâlâ tek-tip (40×40 grass_river_forest) preset'le
+kilitliydi. v0.8.1 bunu plan-driven hale getirir: `tool_plan_map` çıktısı
+doğrudan generate'e besleniyor, özel boyut ve zone konumları destekleniyor.
+
+#### `generate_map(plan=...)` — plan-driven mod
+
+- **Yeni opsiyonel `plan` parametresi.** Dict olarak geçirilirse
+  `{width, height, zones}` şemasını takip ediyor (`tool_plan_map` çıktısıyla
+  uyumlu). Plan olmadan çağrı eski davranışı korur (backward-compat).
+- **Özel boyut.** Plan'daki `width`/`height` generator module global'lerini
+  override eder — 20×20 mini harita, 60×30 geniş dikdörtgen, hepsi mümkün.
+- **Parametric zone bounds.** Dirt yaması (`left/right/top/bottom`), nehir
+  merkezi (`center_x, half_width, wave_amp, wave_period`) ve orman alanı
+  (`left/right/top/bottom, density`) hepsi plan'dan okunuyor.
+- **Zone devre-dışı bırakma.** Plan'da olmayan zone'lar skip ediliyor —
+  "sadece çim" veya "çim + nehir, orman yok" gibi minimal haritalar tek
+  çağrıyla üretilebilir. DIRT/RIVER/FOREST _ENABLED toggle bayrakları.
+
+#### `plan_and_generate` (yeni tool, #31)
+
+Tek-adımlı plan → generate zinciri. `plan_map(width, height, components)`
+çağırıp dönen planı doğrudan `generate_map(plan=...)`'a besliyor. Chat'te
+"25×25 çim+nehir harita üret, orman yok" tek komutla çözülüyor. Döner:
+`{plan, generate}` — iki alt sonucu birlikte.
+
+#### Implementation notu
+
+`scripts/generate_map.py` yeni `--plan <path>` CLI arg'ı alıyor; plan
+JSON dosyasını okuyup `_apply_plan()` ile module globals'ını hydrate
+ediyor. MCP tarafı plan'ı geçici JSON dosyasına yazıp subprocess'e path
+veriyor, çağrı sonrası cleanup yapıyor. Zone toggle'ları ayrılmadığında
+eski tek-pakete-özgü tile pool davranışı korunur.
+
+#### Testler
+
+- **`scripts/test_parametric_generate.py`** — 45 assertion. `_apply_plan`
+  her zone için global mutation (dirt/river/forest), missing-zone toggle
+  off, summary dict. `tool_generate_map(plan=...)` plan JSON tempfile
+  serialization (stubbed generator script recording argv). `plan=None`
+  backward-compat (no --plan flag). `tool_plan_and_generate` compose +
+  forward. TOOL_DEFS surface — `plan_and_generate` registered, schema
+  `plan` property, count ≥ 31.
+
+Tool sayısı: 30 → 31.
+
+### Kapsam dışı (v0.8.2'ye)
+
+- **Tamamen pack-agnostic generate_map.** Hâlâ ERW Grass Land 2.0 v1.9
+  tileset isimlerine (grass/river/props) bağımlı. Farklı pack'lerde
+  name-mapping katmanı v0.8.2'de.
+- **Pagination + large-asset list polish.**
+
+## [0.8.0] - 2026-04-24
+
+### Added — v0.8.0: UX gap closure (plan → place → finalize)
+
+Bu release gerçek-kullanıcı UX gap raporuna (v0.7.3 sonrası çıkan altı
+eksik) cevap veriyor. Odak: **selection-aware placement**, **prop scatter**,
+**multi-key stochastic fill**, **object-seviyesinde düzenleme** ve
+**consolidate'ı generate_map'ten ayırma**.
+
+#### Yeni tool'lar (30 toplam — 25 baseline + 5 yeni)
+
+- **`get_selection(port, host)`** — Studio'daki mevcut seçim dikdörtgenini
+  MCP tarafından okunur hale getirir. Bridge'in yeni `state.last_selection`
+  alanı + `GET /selection` endpoint'i üzerinden döner
+  `{x0, y0, x1, y1, width, height, tile_count, layer}`. Chat'te "seçtiğim
+  yere ağaç bas" tarzı komutları mümkün kılar.
+- **`finalize_map(tmx_path, out_dir, include_license_summary)`** — Geçici
+  TMX'leri paylaşılabilir pakete dönüştürür: atlas consolidation + kopya
+  TMX + tileset firstgid remap + `map_manifest.json`. `include_license_summary`
+  ile pack LICENSE.txt / README.md dosyalarından 500-char özet toplar
+  (CC-BY attribution için). `generate_map` artık default'ta
+  consolidate YAPMIYOR — "plan → hızlı iterate → finalize_map ile paketle"
+  akışı. `consolidate_map` geriye dönük uyumluluk için korundu.
+- **`place_props(tmx_path, layer, region, category, variants, density, min_distance, seed, port, host)`** —
+  Selection veya dikdörtgen bölgeye prop scatter. Jitter-grid sampling
+  (min_distance ile kümelenmeyi engeller), weighted variant seçimi
+  (`variants=[["oak", 10], ["pine", 1]]`), `category="tree"` ile DB'den
+  aday filtresi. Bottom-anchor Y konvansiyonuyla `<object>` yerleştirir
+  (`y = (ty+1)*th`). Live bridge patch veya direct TMX mutate.
+- **`add_object(tmx_path, layer, prop_uid, x, y, rotation, port, host)`** —
+  Tek bir prop'u hassas konuma yerleştirir. DB'den prop_uid → key + size
+  resolve eder, pixel konvertasyonu yapar. "Ağacı tam oraya koy" gibi
+  komutlar için.
+- **`remove_objects(tmx_path, layer, region, category, prop_uid, port, host)`** —
+  Bir bölgedeki objeleri siler. Optional `category` veya `prop_uid`
+  filtresiyle seçici: "bu seçim içindeki tüm ağaçları kaldır" yapılabilir.
+  Object merkezi (cx, cy) region içinde mi kontrol eder. `matched_but_skipped`
+  alanı filtreden dolayı atlanan objeleri raporlar.
+
+#### Güçlendirilen tool'lar
+
+- **`fill_rect` + `fill_selection` multi-key / weighted.** Artık tek `key`
+  yerine `keys=["grass__0", "grass__1", "grass__2"]` (uniform) veya
+  `keys=[["grass__0", 3], ["grass__1", 1]]` (weighted) alıyor. `seed`
+  parametresiyle deterministik. Her hücre bağımsız ağırlıklı örnekleme —
+  "çim alanına %70 sade, %30 çiçekli" gibi doğal dağılımlar. Single-key
+  path backward-compat korundu (`key=` hâlâ çalışıyor). Histogram
+  `key_counts` ile dönüş. `key` + `keys` birlikte verilirse error.
+
+#### Bridge protokolü
+
+- **`POST /patch/objects_add`** — place_props / add_object için live obje
+  enjeksiyonu. WS broadcast `{type:"patch", op:"objects_add", group, objects}`.
+- **`POST /patch/objects_remove`** — remove_objects için batch silme.
+  WS broadcast `{type:"patch", op:"objects_remove", group, ids}`. State'i
+  TMX reload'suz günceller.
+- **`GET /selection`** — get_selection için okuma endpoint'i.
+
+#### Testler
+
+- **`scripts/test_get_selection.py`** — bridge state.last_selection + MCP
+  tool round-trip.
+- **`scripts/test_finalize_map.py`** — pack scan, LICENSE excerpt
+  (500-char truncation), missing TMX graceful error, tool registration
+  surface.
+- **`scripts/test_place_props.py`** — jitter-grid determinism, weighted
+  variant bias (10:1), region resolution, direct TMX fallback,
+  `'part' variant` category filter.
+- **`scripts/test_add_remove_objects.py`** — gid↔(safe_stem, local_id)
+  reverse lookup, category filter isabet eden vs atlanan, bottom-anchor
+  Y, `matched_but_skipped` accounting.
+- **`scripts/test_fill_multikey.py`** — `_normalize_keys` validation
+  (empty, zero, negative, non-numeric, [key]-only, non-str entry), 9:1
+  bias over 1000 trials, weighted cells determinism, single-key
+  backward-compat, key+keys mutual exclusion error.
+- **`scripts/test_v080_e2e.py`** — gerçek bridge subprocess + gerçek
+  PNG'lerle 6-adım entegrasyon: set_selection → get_selection →
+  place_props (category=tree) → fill_selection multi-key weighted →
+  remove_objects (category filter) → add_object. Tüm v0.8.0 crown jewel
+  akışı canlı bridge üzerinden doğrulanıyor.
+
+### Kapsam dışı (bilinçli, v0.8.1'e)
+
+- **Object undo/redo.** Mevcut undo stack sadece paint operasyonlarını
+  (`kind=="paint"`) izliyor; `place_props`, `add_object`, `remove_objects`
+  undo'ya girmiyor. v0.8.1 bu boşluğu kapatacak (`kind=="objects_add" |
+  "objects_remove"` entrieleriyle symmetric revert).
+- **Parametric `generate_map`** — region dikdörtgeniyle sınırlı üretim +
+  plan→generate otomatik zinciri de v0.8.1.
+
+### Neden önemli
+
+v0.7.3'te Studio + chat workflow'u "paint tile" seviyesinde kilitliydi:
+kullanıcı browser'da bölgeyi seçiyordu ama chat bunu göremiyordu, prop
+scatter yoktu, consolidate her iterate'de atlas yeniden üretiyordu,
+obje silmek için TMX'i elle editlemek gerekiyordu. Bu release "seçim
+bilincine sahip, plan→place→finalize" akışını kapatır. Gerçek kullanıcı
+bir bölgeyi seçip "buraya rastgele 8 ağaç bas, çimi çeşitlendir, hazır
+olunca paketle" diyebiliyor.
+
 ## [0.7.3] - 2026-04-23
 
 ### Fixed — Studio frontend build artık paketin içinde (kritik UX sorunu)

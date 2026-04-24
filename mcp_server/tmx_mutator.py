@@ -264,6 +264,137 @@ def _fmt_float(v: float | int | str) -> str:
     return f"{f:g}"
 
 
+@dataclass
+class NewObject:
+    """A new tile-object to insert into an objectgroup.
+
+    x/y are pixel coordinates using Tiled's object convention: the y value
+    is the BOTTOM edge of the sprite (not top), per Tiled spec for tile-
+    objects. Callers working in tile-space should convert before passing.
+    """
+    key: str          # tile-key resolvable via _key_to_gid
+    x: float          # pixel
+    y: float          # pixel, Tiled-object anchor = bottom-left
+    width: float      # pixel
+    height: float     # pixel
+    rotation: float = 0.0
+
+
+def apply_object_add(
+    tmx_path: str | Path,
+    group_name: str,
+    objects: list[NewObject | dict],
+) -> dict:
+    """Insert one or more tile-objects into a named <objectgroup>.
+
+    Assigns fresh ids by bumping <map nextobjectid>. Returns the list of
+    {id, key, gid, x, y, width, height, rotation} actually written.
+
+    Raises ValueError if:
+      - the TMX has no <objectgroup name="group_name">
+      - any object's key can't be resolved to an existing tileset ref
+    """
+    tmx = Path(tmx_path).resolve()
+    tree = ET.parse(tmx)
+    root = tree.getroot()
+
+    og_el = None
+    for og in root.findall("objectgroup"):
+        if og.get("name") == group_name:
+            og_el = og
+            break
+    if og_el is None:
+        raise ValueError(f"objectgroup '{group_name}' yok")
+
+    refs = _load_tileset_refs(root, tmx.parent)
+
+    next_id = int(root.get("nextobjectid", "1"))
+    placed: list[dict] = []
+    for obj in objects:
+        if isinstance(obj, dict):
+            no = NewObject(
+                key=obj["key"],
+                x=float(obj["x"]), y=float(obj["y"]),
+                width=float(obj["width"]),
+                height=float(obj["height"]),
+                rotation=float(obj.get("rotation", 0.0)),
+            )
+        else:
+            no = obj
+        gid = _key_to_gid(refs, no.key)
+        oid = next_id
+        next_id += 1
+        el = ET.SubElement(og_el, "object")
+        el.set("id", str(oid))
+        el.set("gid", str(gid))
+        el.set("x", _fmt_float(no.x))
+        el.set("y", _fmt_float(no.y))
+        el.set("width", _fmt_float(no.width))
+        el.set("height", _fmt_float(no.height))
+        if no.rotation:
+            el.set("rotation", _fmt_float(no.rotation))
+        placed.append({
+            "id": oid, "key": no.key, "gid": gid,
+            "x": no.x, "y": no.y,
+            "width": no.width, "height": no.height,
+            "rotation": no.rotation,
+        })
+
+    root.set("nextobjectid", str(next_id))
+    _atomic_write_xml(tree, tmx)
+    return {
+        "ok": True,
+        "group": group_name,
+        "added": len(placed),
+        "objects": placed,
+    }
+
+
+def apply_object_remove(
+    tmx_path: str | Path,
+    group_name: str,
+    ids: list[int],
+) -> dict:
+    """Remove multiple objects (by id) from an <objectgroup> in one pass.
+
+    Missing ids are silently skipped and reported in `missing`.
+    Returns: {ok, group, removed_ids, missing_ids, remaining_in_layer}.
+
+    Raises ValueError if the named objectgroup doesn't exist.
+    """
+    tmx = Path(tmx_path).resolve()
+    tree = ET.parse(tmx)
+    root = tree.getroot()
+
+    og_el = None
+    for og in root.findall("objectgroup"):
+        if og.get("name") == group_name:
+            og_el = og
+            break
+    if og_el is None:
+        raise ValueError(f"objectgroup '{group_name}' yok")
+
+    want = {int(i) for i in ids}
+    removed: list[int] = []
+    for o in list(og_el.findall("object")):
+        oid = int(o.get("id", "-1"))
+        if oid in want:
+            og_el.remove(o)
+            removed.append(oid)
+
+    missing = sorted(want - set(removed))
+    remaining = len(og_el.findall("object"))
+    _atomic_write_xml(tree, tmx)
+    return {
+        "ok": True,
+        "group": group_name,
+        "removed_ids": sorted(removed),
+        "missing_ids": missing,
+        "removed": len(removed),
+        "remaining_in_layer": remaining,
+    }
+
+
 # ---------------------------------------------------------------------
 # Atomik dosya yazma
 # ---------------------------------------------------------------------

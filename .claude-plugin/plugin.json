@@ -1,6 +1,6 @@
 {
   "name": "tilesmith",
-  "version": "0.7.3",
+  "version": "0.8.2",
   "description": "Tiled (TMX) uyumlu tileset paketlerinden wang-aware 2D RPG harita üreten Claude Code plugin'i. scan_folder ile herhangi bir Tiled paketini tarar ve SQLite'a indeksler; create_map skill'i ile soru-cevap üzerinden harita tasarlar, yerleşim planı sunar, onaylanırsa TMX + yalnızca kullanılan asset'leri içeren konsolide tek atlas PNG üretir. Tilesmith Studio (canlı browser viewer + paint/erase/select + fill_selection) ile haritaları chat'ten düzenle, tarayıcıda anında gör.",
   "author": {
     "name": "fatih BÜLBÜL"
